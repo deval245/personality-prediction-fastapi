@@ -1,5 +1,5 @@
 
-nality Prediction App (FastAPI + PyTorch + Ngrok)
+Personality Prediction App (FastAPI + PyTorch + Ngrok)
 
 This project is a personality type prediction system built using **FastAPI**, **PyTorch**, and deployed via **Ngrok**. It uses behavioral and social inputs to classify users as either an **Introvert** or **Extrovert**.
 
