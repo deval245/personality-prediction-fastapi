@@ -1,0 +1,119 @@
+# training_pipeline.py
+"""
+End-to-end ML pipeline using PyTorch on the 'Extrovert vs Introvert Behavior Data' from Kaggle.
+This script includes:
+- Data loading
+- Data cleaning and preprocessing
+- Dataset & DataLoader setup
+- Model definition and training
+- Evaluation and testing
+"""
+
+import pandas as pd
+import torch
+from torch import nn
+from torch.utils.data import Dataset, DataLoader
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+import matplotlib.pyplot as plt
+import os
+
+# --- 1. Load and Explore Kaggle Data ---
+path = "/kaggle/input/extrovert-vs-introvert-behavior-data"
+df = pd.read_csv(os.path.join(path, "personality_dataset.csv"))
+
+# --- 2. Data Cleaning ---
+df.dropna(inplace=True)
+label_encoder = LabelEncoder()
+df['Stage_fear'] = label_encoder.fit_transform(df['Stage_fear'])
+df['Drained_after_socializing'] = label_encoder.fit_transform(df['Drained_after_socializing'])
+df['Personality'] = df['Personality'].apply(lambda x: 1 if x == 'Introvert' else 0)
+
+# --- 3. Split Features and Target ---
+target_col = "Personality"
+X = df.drop(target_col, axis=1)
+y = df[target_col].values
+
+# --- 4. Train-Test Split and Scaling ---
+scaler = StandardScaler()
+X_scaled = scaler.fit_transform(X)
+X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
+
+# --- 5. PyTorch Dataset and DataLoader ---
+class PersonalityDataset(Dataset):
+    def __init__(self, X, y):
+        self.X = torch.tensor(X, dtype=torch.float32)
+        self.y = torch.tensor(y, dtype=torch.float32)
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
+
+train_ds = PersonalityDataset(X_train, y_train)
+test_ds = PersonalityDataset(X_test, y_test)
+train_loader = DataLoader(train_ds, batch_size=32, shuffle=True)
+test_loader = DataLoader(test_ds, batch_size=32)
+
+# --- 6. Define the Model ---
+class PersonalityClassifier(nn.Module):
+    def __init__(self, input_dim):
+        super().__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(input_dim, 16),
+            nn.ReLU(),
+            nn.Linear(16, 8),
+            nn.ReLU(),
+            nn.Linear(8, 1),
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        return self.fc(x)
+
+model = PersonalityClassifier(X_train.shape[1])
+
+# --- 7. Loss & Optimizer ---
+loss_fn = nn.BCELoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+# --- 8. Train the Model ---
+epochs = 20
+for epoch in range(epochs):
+    model.train()
+    total_loss = 0
+    for xb, yb in train_loader:
+        pred = model(xb).squeeze()
+        loss = loss_fn(pred, yb)
+        optimizer.zero_grad()
+        loss.backward()
+        optimizer.step()
+        total_loss += loss.item()
+    print(f"Epoch {epoch+1}/{epochs}, Loss: {total_loss:.4f}")
+
+# --- 9. Save the Model ---
+weights_path = "personality_model.pth"
+torch.save(model.state_dict(), weights_path)
+
+# --- 10. Evaluate the Model ---
+def evaluate(model, loader):
+    model.eval()
+    correct, total = 0, 0
+    with torch.no_grad():
+        for xb, yb in loader:
+            pred = model(xb).squeeze() >= 0.5
+            correct += (pred == yb).sum().item()
+            total += len(yb)
+    return correct / total
+
+test_acc = evaluate(model, test_loader)
+print(f"\n✅ Model test accuracy: {test_acc*100:.2f}%")
+
+# --- 11. Sample Predictions ---
+model.eval()
+with torch.no_grad():
+    for i in range(5):
+        xb, yb = test_ds[i]
+        pred = model(xb.unsqueeze(0)).item()
+        print(f"Input {i}: Prediction={int(pred >= 0.5)} | Actual={int(yb)}")
